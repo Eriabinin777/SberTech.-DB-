@@ -1,7 +1,0 @@
-HTTP/1.1 200 OK
-Server: Apache-Coyote/1.1
-Cache-Control: private,no-cache,no-store
-Content-Type: image/png
-Transfer-Encoding: chunked
-Date: Mon, 18 Mar 2019 20:17:34 GMT
-
