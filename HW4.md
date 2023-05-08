@@ -550,3 +550,137 @@ public class LiteDBSearchComparison
 |C индексом|752.7 us|14.71 us|21.56 us|1.00|
 |Без индекса|277.5 us|4.30 us|4.02 us|0.37|
 
+## Процесс выполнения и план запросов
+
+Запросы LiteDB должны использовать индексы для связанных полей запроса. Если индекса нет, индекс будет создан по умолчанию. В приведенном выше примере создается индекс поля и запроса. В LiteDB есть 2 способа запроса:
+
+1. Используйте статический вспомогательный класс Query;
+
+2. Использование метода Linq аналогично демонстрационному методу;
+
+LiteDB использует Query для запроса следующих методов, подробно объясняя некоторые важные из них. Всем не должно быть сложно понять другие. Если есть какие-то неточности, пожалуйста, исправьте меня:
+
+Query.All возвращает все данные, вы можете использовать указанное поле индекса для сортировки
+Поиск Query.EQ возвращает данные, равные указанному значению поля
+Query.LT/LTE находит данные с <или <= определенным значением
+Query.GT/GTE, чтобы найти данные> или> = определенного значения
+Query.Between находит данные в указанном диапазоне
+Запрос. Как и в SQL в, найти данные, равные значению в списке.
+Query.Not - в отличие от EQ, данные, не равные определенному значению
+Query.StartsWith находит данные, начинающиеся со строки
+Query.Contains находит данные, которые защищают определенную строку, этот запрос сканирует только индекс
+Запрос и пересечение 2 запросов
+Запрос или объединение двух результатов запроса
+
+Посмотрите на реальный код:
+
+```
+var results = collection.Find(Query.EQ("Name", "John Doe"));
+var results = collection.Find(Query.GTE("Age", 25));
+var results = collection.Find(Query.And(
+    Query.EQ("FirstName", "John"), Query.EQ("LastName", "Doe")
+));
+var results = collection.Find(Query.StartsWith("Name", "Jo"));
+```
+Как показано, синтаксисом является поле слева и значение справа. Обратите внимание, что LiteDB не поддерживает это выражение: CreationDate == DueDate.
+
+Ниже представлены несколько основных методов запросов с использованием Linq:
+
+`FindAll`: найти все записи результатов в таблице или коллекции
+`FindOne`: вернуть первый результат или результат по умолчанию
+`FindById`: вернуть один результат по индексу
+`Find`: использовать выражение запроса или запрос выражения linq для возврата результатов
+
+Взгляните на несколько примеров:
+
+```
+collection.EnsureIndex(x => x.Name);
+var result = collection
+    .Find(Query.EQ("Name", "John Doe")) 
+    .Where(x => x.CreationDate >= x.DueDate.AddDays(-5)) 
+    .OrderBy(x => x.Age)
+    .Select(x => new 
+    { 
+        FullName = x.FirstName + " " + x.LastName, 
+        DueDays = x.DueDate - x.CreationDate 
+    });
+ ```
+Конечно, есть такие методы, как `Count (), Exists (), Min (), Max ()` и другие. . Легче понять. Посмотрите на пример запроса выражения linq:
+
+```
+var collection = db.GetCollection<Customer>("customer");
+var results = collection.Find(x => x.Name == "John Doe");
+var results = collection.Find(x => x.Age > 30);
+var results = collection.Find(x => x.Name.StartsWith("John") && x.Age > 30);
+```
+
+Больше примеров и подробное описание можно посмотреть на следующей официальной [странице](https://github.com/mbdavid/LiteDB/wiki/Queries).
+
+## Файловая система
+
+Чтобы сохранить небольшой профиль памяти, LiteDB ограничивает размер документов до 1 МБ. Для большинства документов этого достаточно. Однако 1 МБ слишком мало для полезного хранилища файлов. По этой причине LiteDB реализует `FileStorage` пользовательскую коллекцию для хранения файлов и потоков.
+
+Коллекция `FileStorage` содержит простые методы, такие как:
+
+* `Upload`: отправить файл или поток в базу данных. Может использоваться с файлом или `Stream`. Если файл уже существует, содержимое файла перезаписывается.
+* `Download`: Получите ваш файл из базы данных и скопируйте в `Stream` параметр
+* `Delete`: удалить ссылку на файл и все фрагменты данных
+* `Find`: найти один или несколько файлов в `_files` коллекции. Возвращает `LiteFileInfo` класс, после которого можно загрузить данные.
+* `SetMetadata`: обновить сохраненные метаданные файла. Этот метод не изменяет значение сохраненного файла. Он обновляет значение `_files.metadata`.
+* `OpenRead`: найти файл по `_id` и возвращает `LiteFileStream` для чтения содержимого файла в виде потока
+
+`FileStorage`не поддерживает транзакции, чтобы не помещать весь файл в память перед его сохранением на диске. Транзакции используются по частям. Каждый загруженный фрагмент фиксируется в одной транзакции. Более подробное использование в [документации](https://www.litedb.org/docs/filestorage/).
+
+## Транзакции
+
+В v4 транзакции удалены, чтобы избежать блокировки файла данных между командами. Было важно исправить некоторые проблемы параллелизма версии 3.
+
+Но транзакции потрясающие, в некоторых приложениях они действительно важны. Поэтому разработчик работал над другим способом реализации «транзакционной» операции. Идея заключается в том, чтобы реализовать что-то вроде Entity Framework: работать с объектами в памяти и при вызове «SaveChanges» сохранять все изменения в одной операции с файлом данных (и, если возникает какая-либо ошибка, откатывать все).
+
+Итак, вот предложение:
+
+```
+using(var db = new LiteDatabase("..."))
+{
+    var customers = db.GetCollection<Customer>("customers");
+    var orders = db.GetCollection<Order>("orders");
+    
+    var cust1 = new Customer { Name = "John" };
+    var order1 = new Order { Date = DateTime.Now, Customer = cust1 };
+    
+    customers.Add(cust1);
+    orders.Add(order1);
+    
+    // no datafile operation until here
+    // all entities are in memory (as a List<Entity> Changes)
+    // so, "customers.FindById(1) == null"
+    
+    db.SaveChanges(); 
+    // now, in a single datafile operation:
+    // - "cust1" will be serialized, inserted and setted "CustomerId"
+    // - "order1" will be serialized (and will get reference from cust1), inserted and setted "OrderId"
+    
+    // "Updating"
+    
+    var cust2 = customers.FindById(2);
+    
+    cust2.Name = "Newton";
+    
+    customers.Set(cust2);
+    
+    // to avoid track all return objects (from Find), you will need use "Set" to be updated later
+    
+    db.SaveChanges();
+    
+    // also, will be avaiable
+    // customers.Save(entity) - works as Upsert()
+    // customers.Remove(entity) - works as Delete()
+    
+}
+```
+
+* Эти 4 метода будут работать со списком изменений (`List<Entity>`), которые будут выполняться в порядке включения в этот список при `SaveChanges` вызове.
+* Текущий 'Insert(), Update(), Delete()' метод будет работать как исключенный
+* Пока 'SaveChanges()' все добавленные/обновленные/удаленные сущности не отразятся в 'Find' операциях
+
+
