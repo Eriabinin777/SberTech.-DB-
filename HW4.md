@@ -167,11 +167,51 @@ LiteDB — это бессерверная база данных, поставл
 
 ![Текст с описанием картинки](/images/HW4-3.jpg)
 
-## Установка и начало работы
+## Установка, документация и обучение
 
-Скачать LiteDB можно по [ссылке](https://www.nuget.org/packages/LiteDB/). Более подробную информацию о установке можно найти [здесь](https://www.litedb.org/docs/getting-started/) и [здесь](https://litedb.readthedocs.io/en/latest/getting-started/getting-started.html). Полезное будет вот это [видео](https://www.youtube.com/watch?v=d2N4Ia8Wwd0), в котором показано, как работать с этой СУБД, а также есть [видео](https://www.youtube.com/watch?v=a3m4B5m6IqQ), где показано, как добавить LiteDB в Visual Studio.
+Скачать LiteDB можно по [ссылке](https://www.nuget.org/packages/LiteDB/). Более подробную информацию о установке можно найти [здесь](https://www.litedb.org/docs/getting-started/) и [здесь](https://litedb.readthedocs.io/en/latest/getting-started/getting-started.html). 
 
-## Примеры запросов и индексация
+Документацию можно почитать как на официальном [сайте](https://www.litedb.org/docs/getting-started/), так и [здесь](https://litedb.readthedocs.io/en/latest/getting-started/getting-started.html). Также множество материалов имеется на [GitHub](https://github.com/mbdavid/LiteDB).
+
+Полезное для обучения будет вот это [видео](https://www.youtube.com/watch?v=d2N4Ia8Wwd0), в котором показано, как работать с этой СУБД, а также есть [видео](https://www.youtube.com/watch?v=a3m4B5m6IqQ), где показано, как добавить LiteDB в Visual Studio. Следующие сайты могут быть полезны для начала работы с LiteDB: [1](https://dottutorials.net/nosql-db-dotnet-core-example-csharp-litedb-tutorial/#view-data-in-database), [2](https://www.c-sharpcorner.com/UploadFile/ranjancse/getting-started-with-litedb/), [3](https://dev.listera.top/docs/litedb/LiteDB-v1/), [4](https://metanit.com/sharp/articles/ado.net/1.php), [5](https://litedb.readthedocs.io/_/downloads/en/latest/pdf/). 
+
+## Демобаза
+
+В шаблоне на этом [сайте](https://zennolab.com/discussion/threads/proekt-dlja-raboty-s-litedb-udobnaja-nosql-baza-dlja-parsinga.83159/) примеры сниппетов для сохранения информации в базу. Используется версия 4.1.4, т.к. под эту линейку написан [explorer](https://github.com/julianpaulozzi/LiteDbExplorer) с хорошим UI и функционалом.
+
+Порядок действий:
+Добавить в папку ExternalAssemblies файлы: LiteDB.dll и LiteDB.xml
+Прописать в директивы using:
+
+```
+using LiteDB;
+```
+Добавить LiteDB.dll из папки ExternalAssemblies в "Ссылки из GAC".
+
+Краткий экскурс в JSON формат.
+Все что вам нужно знать о JSON - это разница между фигурными {} и квадратными [] скобками. :-)
+
+Фигурные скобки {} - это документ или объект, которому должно быть присвоено имя. Документ может включать документы, массивы и т.д.
+```
+{
+    "name_1": "value_1",
+    "name_2": "value_2"
+}
+```
+Квадратные скобки [] - это массив объектов (array).
+```
+[
+    "value_1",
+    "value_2"
+]
+```
+Это позволяет создавать структуры любой сложности и вложенности, а затем просто отправлять их в базу. Таким образом, нет необходимости заранее планировать структуру базы, нет необходимости подключаться к базе или держать локальный сервер. Информация хранится в одном файле.
+
+В базе используется BSON, который расширяет поддержку форматов для JSON, поддерживаются ObjectID, Date, и т.д.
+
+Для экспорта и работы с информацией используем LiteDbExplorer, позволяет работать с несколькими базами сразу, экспортировать в excel, csv и json.
+
+## Демонстрация создания данных, запросов и индексации
 
 ### ***Наследование***
 
@@ -683,4 +723,4 @@ using(var db = new LiteDatabase("..."))
 * Текущий 'Insert(), Update(), Delete()' метод будет работать как исключенный
 * Пока 'SaveChanges()' все добавленные/обновленные/удаленные сущности не отразятся в 'Find' операциях
 
-
+## 
