@@ -789,5 +789,5 @@ LiteDB — это растущее сообщество, которому нуж
 
 Официально на сайте команда состоит из 3 человек: основатель/разработчик - Маурисио Давид (слева), разработчик - Кассиано Сомбрио (в центре),разработчик - Леонардо Насименто (справа).
 
-
+Известно, что все члены команды из Бразилии. Про личную жизнь разработчиков ничего неизвестно, но есть несколько сайтов с рабочей информацией. Вся информация про LiteDB завязана на аккуантах основателя Маурисио Давида. Информация про Маурисио: [1](https://github.com/mbdavid), [2](https://app.gitter.im/#/room/#mbdavid_LiteDB:gitter.im), [3](https://www.codeproject.com/script/Membership/View.aspx?mid=1384501). Информация про Кассиано: [1](https://githubrecord.com/kcsombrio). Информация про Леонардо: [1](https://github.com/lbnascimento), [2](https://giter.club/lbnascimento), [3](https://giters.com/lbnascimento), [4](https://githubrecord.com/lbnascimento).
 
