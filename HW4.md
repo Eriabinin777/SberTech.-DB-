@@ -283,6 +283,8 @@ using (var db = new LiteDatabase(connectionString))
 
 Что ж, с сохранением разобрались. Давайте перейдём к чтению.
 
+### ***Поиск текста***
+
 Как я уже сказал, мне необходимо искать объекты Item в свойствах `Title` и `Description` которых, а так же в свойствах их полей (свойство `Fields`) содержится определённый текст.
 
 С поиском внутри свойств `Title` и `Description` всё ясно. Документация содержит понятные примеры:
@@ -337,7 +339,7 @@ internal sealed class DescriptionField : Field
 $.Title LIKE '%1%' OR $.Description LIKE '%1%' OR $.Fields[*].TextField ANY LIKE '%1%'
 ```
 
-Добавляя нового наследника класса Field, я могу просто пометить его свойство атрибутом '[BsonField("TextField")]'. Тогда мне не придётся вносить никаких изменений в поисковое выражение.
+Добавляя нового наследника класса Field, я могу просто пометить его свойство атрибутом 'BsonField("TextField")'. Тогда мне не придётся вносить никаких изменений в поисковое выражение.
 
 К сожалению этот способ не совсем решает все наши проблемы. Дело в том, что у наследника 'Field' может быть произвольное число свойств, в которых нужно осуществлять поиск. Поэтому может оказаться, что их нельзя привести к уже имеющимся в базе полям.
 
@@ -352,3 +354,199 @@ OR ($.Fields[*].Description ANY LIKE @0) OR ($.Fields[*].Password ANY LIKE @0)",
  .ToArray();
  ```
  
+ ### ***Индексация***
+ 
+LiteDB повышает производительность поиска, используя индексы для полей или выражений документа. В каждом индексе хранится значение определенного выражения, упорядоченное по значению (и типу). Без индекса LiteDB должен выполнить запрос, используя полное сканирование документа. Полное сканирование документов неэффективно, поскольку LiteDB должна десериализовать каждый документ в коллекции.
+
+Индексы в LiteDB реализованы с помощью списков пропуска . Списки пропуска представляют собой отсортированные с двойной связью списки, содержащие до 32 уровней. Списки пропуска очень просты в реализации (всего 15 строк кода) и статистически сбалансированы.
+
+Операции вставки и поиска имеют среднюю сложность O (log n). Это означает, что в коллекции с 1 миллионом документов операция поиска по индексированному выражению займет около 13 шагов, чтобы найти нужный документ. Если вы хотите узнать больше о списках пропуска, посмотрите это [замечательное видео](https://www.youtube.com/watch?v=kBwUoWpeH_Q). 
+
+Более подробную информацию про индексы можно найти в [документации](https://www.litedb.org/docs/indexes/).
+
+Конечно, моё приложение будет хранить не такой большой объём данных, чтобы это было критически важно. Но всё же было бы хорошо, чтобы мои запросы использовали индексы и выполнялись быстро.
+
+Во-первых, как нам узнать, использует ли данный запрос индекс или нет. Для этого в LiteDB есть команда `EXPLAIN`. В LiteDB.Studio я выполню свой запрос так:
+
+```
+EXPLAIN
+SELECT $ FROM Item
+WHERE $.Title LIKE '%1%'
+    OR $.Description LIKE '%1%'
+    OR ($.Fields[*].Text ANY LIKE '%1%')
+ OR ($.Fields[*].Description ANY LIKE '%1%')
+  OR ($.Fields[*].Password ANY LIKE '%1%')
+```
+
+Результат выполнения этой команды содержит следующую информацию об используемом индексе:
+```
+"index":
+ {
+ "name": "_id",
+ "expr": "$._id",
+ "order": 1,
+ "mode": "FULL INDEX SCAN(_id)",
+ "cost": 100
+ },
+ ```
+ Как видите, сейчас применяется полный просмотр всех данных. Хотелось бы добиться лучшего результата.
+
+Документация прямо говорит, что возможно создать индекс на основе свойств типа массив. При этом можно будет осуществлять поиск любого входящего в такие массивы значения. Например, вот так можно создать индекс для поиска информации в свойствах `Text` моих поле
+
+```
+collection.EnsureIndex("TextIndex", "$.Fields[*].Text");
+```
+
+Теперь этот индекс можно использовать в поиске:
+
+```
+var items = collection.Query()
+ .Where("$.Fields[*].Text ANY LIKE @0", "%1%")
+ .ToArray();
+```
+
+Команда `EXPLAIN` в LiteDB.Studio показывает, что этот запрос действительно использует созданный нами индекс:
+
+```
+"index":
+ {
+ "name": "TextIndex",
+ "expr": "MAP($.Fields[*]=>@.Text)",
+ "order": 1,
+ "mode": "FULL INDEX SCAN(TextIndex LIKE \"%1%\")",
+ "cost": 100
+ },
+ ```
+ 
+Но как нам объединить в один индекс все наши свойства? На помощь приходит команда CONCAT. Она объединяет в один массив несколько свойств. Вот как будет выглядеть создание полного индекса:
+
+```
+collection.EnsureIndex("ItemsIndex", @"CONCAT($.Title,
+ CONCAT($.Description,
+ CONCAT($.Fields[*].Text,
+ CONCAT($.Fields[*].Password,
+ $.Fields[*].Description
+ )
+ )
+ )
+ )");
+```
+Чтобы искать по нему, нам придётся переписать наше поисковое выражение:
+
+```
+var items = collection.Query()
+    .Where(
+        @"CONCAT($.Title,
+            CONCAT($.Description,
+                CONCAT($.Fields[*].Text,
+                    CONCAT($.Fields[*].Password,
+                            $.Fields[*].Description
+                    )
+                )
+            )
+        ) ANY LIKE @0",
+        "%1%")
+    .ToArray();
+```
+Теперь наш поиск действительно использует индекс:
+
+```
+"index":
+  {
+    "name": "ItemsIndex",
+    "expr": "CONCAT($.Title,CONCAT($.Description,CONCAT(MAP($.Fields[*]=>@.Text),CONCAT(MAP($.Fields[*]=>@.Password),MAP($.Fields[*]=>@.Description)))))",
+    "order": 1,
+    "mode": "FULL INDEX SCAN(ItemsIndex LIKE \"%3%\")",
+    "cost": 100
+  },
+ ```
+ 
+К сожалению, оператор `LIKE` всё равно приводит к `FULL INDEX SCAN`. Остаётся надеяться, что индекс всё же даёт некоторый выигрыш. Хотя, зачем нам надеяться. Мы же можем всё измерить. У нас же есть BenchmarkDotNet.
+
+Я написал вот такой класс для проведения тестов быстродействия:
+
+```
+[SimpleJob(RuntimeMoniker.Net60)]
+public class LiteDBSearchComparison
+{
+    private LiteDatabase _database;
+    private ILiteCollection<Item> _collection;
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        if (File.Exists("compare.dat"))
+            File.Delete("compare.dat");
+
+        _database = new LiteDatabase("Filename=compare.dat");
+
+        _collection = _database.GetCollection<Item>();
+
+        _collection.EnsureIndex("ItemIndex", @"CONCAT($.Title,
+            CONCAT($.Description,
+                CONCAT($.Fields[*].Text,
+                    CONCAT($.Fields[*].Password,
+                            $.Fields[*].Description
+                    )
+                )
+            )
+        )");
+
+        for (int i = 0; i < 100; i++)
+        {
+            var item = new Item
+            {
+                Title = "t",
+                Description = "d",
+                Fields =
+                {
+                    new TextField { Text = "te" },
+                    new PasswordField { Password = "p" },
+                    new DescriptionField { Description = "de" }
+                }
+            };
+
+            _collection.Insert(item);
+        }
+    }
+
+    [GlobalCleanup]
+    public void Cleanup()
+    {
+        _database.Dispose();
+    }
+
+    [Benchmark(Baseline = true)]
+    public void WithoutIndex()
+    {
+        _ = _collection.Query()
+            .Where("$.Title LIKE @0 OR $.Description LIKE @0 OR ($.Fields[*].Text ANY LIKE @0) OR ($.Fields[*].Description ANY LIKE @0) OR ($.Fields[*].Password ANY LIKE @0)",
+                "%1%")
+            .ToArray();
+    }
+
+    [Benchmark]
+    public void WithIndex()
+    {
+        _ = _collection.Query()
+            .Where(@"CONCAT($.Title,
+                        CONCAT($.Description,
+                            CONCAT($.Fields[*].Text,
+                                CONCAT($.Fields[*].Password,
+                                        $.Fields[*].Description
+                                )
+                            )
+                        )
+                    ) ANY LIKE @0",
+                "%1%")
+            .ToArray();
+    }
+}
+```
+Результаты, которые я получил для него, следующие:
+
+|Method|Mean|Error|StdDev|Ratio|
+|:-:|:-:|:-:|
+|C индексом|752.7 us|14.71 us|21.56 us|1.00|
+|Без индекса|277.5 us|4.30 us|4.02 us|0.37|
+
